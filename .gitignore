@@ -1,0 +1,14 @@
+node_modules/
+.next/
+__pycache__/
+*.pyc
+.venv/
+.env
+.env.local
+data/exampilot.db*
+data/seed/*
+!data/seed/baseline_plan.json
+*.log
+.pytest_cache/
+frontend/tsconfig.tsbuildinfo
+backend/*_tmp*.py

@@ -1,0 +1,9 @@
+**/node_modules
+**/.venv
+**/__pycache__
+**/.next
+frontend
+data/exampilot.db*
+data/*.log
+data/*.token
+.git
