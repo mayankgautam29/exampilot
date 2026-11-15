@@ -10,7 +10,7 @@ export function slotLabel(slots: SlotInfo[] | undefined, id: string | null | und
   return slot ? slot.label : id;
 }
 
-const PALETTE = ["#ef4444", "#f97316", "#eab308", "#84cc16", "#10b981", "#06b6d4", "#3b82f6", "#6366f1", "#a855f7", "#ec4899", "#64748b", "#14b8a6"];
+const PALETTE = ["#d9411e", "#0f6b5c", "#2a55b5", "#6a3fa0", "#8f5200", "#1f7a4d", "#b02e6b", "#4b5563", "#0b7285", "#9c3d0f", "#5a6b1f", "#7a4a2e"];
 
 export function colorFor(key: string): string {
   let hash = 0;
@@ -18,7 +18,7 @@ export function colorFor(key: string): string {
   return PALETTE[hash % PALETTE.length];
 }
 
-export const DEPT_COLORS: Record<string, string> = { CSE: "#3b82f6", ECE: "#a855f7", ME: "#f97316", CIV: "#10b981", MGT: "#eab308", DES: "#ec4899", OPEN: "#64748b" };
+export const DEPT_COLORS: Record<string, string> = { CSE: "#2a55b5", ECE: "#6a3fa0", ME: "#d9411e", CIV: "#0f6b5c", MGT: "#c98a00", DES: "#b02e6b", OPEN: "#6b6455" };
 
 export function pct(value: number): string {
   return `${Math.round(value * 10) / 10}%`;

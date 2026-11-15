@@ -2,14 +2,12 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { FileDown, Shuffle, Sparkles } from "lucide-react";
+import { Accessibility, FileDown, MousePointerClick, Shuffle, Sparkles, VolumeX } from "lucide-react";
 import { useState } from "react";
 import { SeatGrid, type RoomShape, type SeatStudent } from "@/components/seat-grid";
-import { Badge } from "@/components/ui/badge";
+import { EmptyState, LoadingBlock, NativeSelect, PageHeader, Pill, SectionTitle } from "@/components/ui-kit";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { EmptyState, LoadingBlock, PageHeader } from "@/components/ui-kit";
 import { api, download } from "@/lib/api";
 import { useCatalogue, usePublished } from "@/lib/hooks";
 import { cn } from "@/lib/utils";
@@ -41,12 +39,13 @@ export default function SeatingStudio() {
   const { published } = usePublished();
   const catalogue = useCatalogue();
   const [slot, setSlot] = useState("2026-12-07-S1");
-  const [room, setRoom] = useState<string | null>(null);
+  const [picked, setPicked] = useState<string | null>(null);
   const [view, setView] = useState<"optimised" | "random">("optimised");
   const [hover, setHover] = useState<SeatStudent | null>(null);
   const [why, setWhy] = useState<string | null>(null);
   const planId = published?.id;
   const rooms = useQuery({ queryKey: ["rooms", planId, slot], queryFn: () => api<RoomRow[]>(`/plans/${planId}/rooms`, { params: { slot } }), enabled: !!planId });
+  const room = picked ?? rooms.data?.[0]?.room_id ?? null;
   const seating = useQuery({ queryKey: ["seating", planId, slot, room], queryFn: () => api<SeatingData>(`/plans/${planId}/seating`, { params: { slot, room } }), enabled: !!planId && !!room });
   const explanation = useQuery({ queryKey: ["why-seat", planId, slot, why], queryFn: () => api<SeatExplanation>(`/plans/${planId}/explain/seat`, { params: { student: why!, slot } }), enabled: !!why && !!planId });
   const slots = catalogue.data?.slots.filter((s) => !s.blocked) ?? [];
@@ -57,86 +56,114 @@ export default function SeatingStudio() {
   return (
     <div>
       <PageHeader
+        eyebrow="Plan"
         title="Seating Studio"
         description="Same-course students are pushed apart by simulated annealing. Flip between a random seating and the optimised one and watch the risk index fall."
         actions={
-          <select className="h-8 rounded-lg border bg-background px-2 text-sm" value={slot} onChange={(e) => { setSlot(e.target.value); setRoom(null); }}>
+          <NativeSelect
+            aria-label="Exam session"
+            value={slot}
+            onChange={(e) => {
+              setSlot(e.target.value);
+              setPicked(null);
+            }}
+          >
             {slots.map((s) => (
-              <option key={s.id} value={s.id}>{s.label}</option>
+              <option key={s.id} value={s.id}>
+                {s.label}
+              </option>
             ))}
-          </select>
+          </NativeSelect>
         }
       />
-      <div className="grid gap-4 lg:grid-cols-[260px_1fr]">
-        <Card className="h-fit">
-          <CardHeader>
-            <CardTitle>Rooms in use</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-1.5">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-5 lg:grid-cols-[280px_minmax(0,1fr)]">
+        <aside className="surface rise-1 h-fit p-4">
+          <SectionTitle title="Rooms in use" hint="Risk index is lower for safer seating." />
+          <div className="space-y-2">
             {rooms.isLoading && <LoadingBlock rows={5} />}
-            {rooms.data?.map((r) => (
-              <button key={r.room_id} onClick={() => setRoom(r.room_id)} className={cn("flex w-full items-center justify-between rounded-lg border px-2.5 py-1.5 text-left text-sm hover:bg-muted", room === r.room_id && "border-primary bg-muted")}>
-                <span>
-                  <span className="font-medium">{r.room_id}</span>
-                  <span className="ml-2 text-xs text-muted-foreground">{r.students}/{r.seats}</span>
-                </span>
-                <span className="flex gap-1">
-                  {r.accessible && <Badge variant="outline">♿</Badge>}
-                  {r.quiet && <Badge variant="outline">quiet</Badge>}
-                  <Badge variant="secondary">{r.risk ?? "—"}</Badge>
-                </span>
-              </button>
-            ))}
-          </CardContent>
-        </Card>
-        <div className="space-y-3">
+            {rooms.data?.map((r) => {
+              const fill = Math.round((100 * r.students) / Math.max(1, r.seats));
+              return (
+                <button key={r.room_id} onClick={() => setPicked(r.room_id)} className={cn("w-full rounded-xl border bg-card p-3 text-left shadow-xs transition hover:border-brand/50 hover:shadow-card", room === r.room_id && "border-brand ring-2 ring-brand/25")}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-1.5 text-sm font-semibold">
+                      {r.room_id}
+                      {r.accessible && <Accessibility className="size-3.5 text-info" aria-label="Accessible" />}
+                      {r.quiet && <VolumeX className="size-3.5 text-muted-foreground" aria-label="Quiet room" />}
+                    </span>
+                    <Pill tone={r.risk !== null && r.risk <= 15 ? "good" : "neutral"}>risk {r.risk ?? "—"}</Pill>
+                  </div>
+                  <div className="mt-2 flex items-center gap-2">
+                    <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+                      <div className="h-full rounded-full bg-brand" style={{ width: `${fill}%` }} />
+                    </div>
+                    <span className="text-[11px] tabular-nums text-muted-foreground">
+                      {r.students}/{r.seats}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </aside>
+
+        <div className="space-y-4">
           {!room || !data ? (
             seating.isLoading ? <LoadingBlock rows={6} /> : <EmptyState title="Pick a room" hint="Choose a room on the left to see its seating plan." />
           ) : (
             <>
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="inline-flex rounded-lg border p-0.5">
-                  <Button size="sm" variant={view === "random" ? "secondary" : "ghost"} onClick={() => setView("random")}>
+              <div className="surface rise-1 flex flex-wrap items-center gap-4 p-4">
+                <div className="inline-flex rounded-xl bg-muted p-1 ring-1 ring-border" role="tablist" aria-label="Seating view">
+                  <Button size="sm" role="tab" aria-selected={view === "random"} variant={view === "random" ? "outline" : "ghost"} onClick={() => setView("random")}>
                     <Shuffle /> Random
                   </Button>
-                  <Button size="sm" variant={view === "optimised" ? "secondary" : "ghost"} onClick={() => setView("optimised")}>
+                  <Button size="sm" role="tab" aria-selected={view === "optimised"} variant={view === "optimised" ? "outline" : "ghost"} onClick={() => setView("optimised")}>
                     <Sparkles /> Optimised
                   </Button>
                 </div>
-                <motion.div key={view} initial={{ scale: 0.95, opacity: 0.5 }} animate={{ scale: 1, opacity: 1 }} className={cn("rounded-lg px-3 py-1.5 text-sm font-medium", view === "optimised" ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300" : "bg-red-500/15 text-red-700 dark:text-red-300")}>
-                  {view === "optimised" ? `Risk vs random: ${data.optimised.risk} (−${reduction}%)` : `Random seating: risk ${Math.round(data.random.risk)} (baseline)`}
+                <motion.div key={view} initial={{ scale: 0.96, opacity: 0.5 }} animate={{ scale: 1, opacity: 1 }} className="flex items-baseline gap-2">
+                  <span className={cn("font-display text-[34px] leading-none tabular-nums", view === "optimised" ? "text-good-text" : "text-bad")}>{view === "optimised" ? data.optimised.risk : Math.round(data.random.risk)}</span>
+                  <span className="text-xs text-muted-foreground">{view === "optimised" ? `risk index · ${reduction}% below random` : "risk index · random baseline"}</span>
                 </motion.div>
-                <Badge variant="outline">{data.optimised.adjacent_pairs} same-course neighbours in the optimised plan</Badge>
-                <Button size="sm" variant="outline" className="ml-auto" onClick={() => download("/export/seating.pdf", "seating.pdf", { plan_id: planId, slot, room: room ?? undefined })}>
+                <Pill tone={data.optimised.adjacent_pairs === 0 ? "good" : "warn"}>{data.optimised.adjacent_pairs} same-course neighbours</Pill>
+                <Button variant="outline" className="ml-auto" onClick={() => download("/export/seating.pdf", "seating.pdf", { plan_id: planId, slot, room: room ?? undefined })}>
                   <FileDown /> PDF
                 </Button>
               </div>
-              <div className="grid gap-3 xl:grid-cols-[1fr_240px]">
+              <div className="grid grid-cols-[minmax(0,1fr)] gap-4 xl:grid-cols-[minmax(0,1fr)_250px]">
                 <SeatGrid room={data.room} students={shown} showLines={view === "random"} onHover={setHover} onSelect={(s) => setWhy(s.student_id)} />
-                <div className="space-y-3">
-                  <Card size="sm">
-                    <CardContent className="min-h-28 text-sm">
-                      {hover ? (
-                        <div className="space-y-1">
-                          <div className="font-medium">{hover.name}</div>
-                          <div className="font-mono text-xs">{hover.student_id}</div>
-                          <div>{hover.course_id} · section {hover.section}</div>
-                          <div className="text-xs text-muted-foreground">Seat {hover.row + 1}-{hover.col + 1}{hover.accessible ? " · accessible seat" : ""}{hover.extra_time ? " · extra time" : ""}</div>
+                <div className="space-y-4">
+                  <div className="surface min-h-32 p-4 text-sm">
+                    {hover ? (
+                      <div className="space-y-1">
+                        <div className="text-[15px] font-semibold">{hover.name}</div>
+                        <div className="font-mono text-xs text-muted-foreground">{hover.student_id}</div>
+                        <div className="pt-1">
+                          {hover.course_id} · section {hover.section}
                         </div>
-                      ) : (
-                        <p className="text-muted-foreground">Hover a seat for the student, click it to see why it was chosen.</p>
-                      )}
-                    </CardContent>
-                  </Card>
-                  <Card size="sm">
-                    <CardContent className="space-y-1 text-xs">
-                      <div className="font-medium">Invigilators</div>
+                        <div className="text-xs text-muted-foreground">
+                          Seat {hover.row + 1}-{hover.col + 1}
+                          {hover.accessible ? " · accessible seat" : ""}
+                          {hover.extra_time ? " · extra time" : ""}
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="flex items-start gap-2 text-[13px] leading-relaxed text-muted-foreground">
+                        <MousePointerClick className="mt-0.5 size-4 shrink-0" /> Hover a seat to see the student, click it to see why it was chosen.
+                      </p>
+                    )}
+                  </div>
+                  <div className="surface p-4 text-sm">
+                    <div className="eyebrow mb-2">Invigilators</div>
+                    <div className="space-y-1.5">
                       {data.invigilators.map((i) => (
-                        <div key={i.faculty_id}>{i.name} {i.role === "chief" && <Badge variant="secondary">chief</Badge>}</div>
+                        <div key={i.faculty_id} className="flex items-center justify-between gap-2 text-[13px]">
+                          {i.name} {i.role === "chief" && <Pill tone="brand">chief</Pill>}
+                        </div>
                       ))}
-                      <div className="pt-1 text-muted-foreground">Red lines join same-course neighbours in the random view.</div>
-                    </CardContent>
-                  </Card>
+                    </div>
+                    <p className="mt-3 border-t pt-3 text-xs text-muted-foreground">Red lines join same-course neighbours in the random view.</p>
+                  </div>
                 </div>
               </div>
             </>
@@ -151,8 +178,12 @@ export default function SeatingStudio() {
           </SheetHeader>
           <div className="space-y-2 px-4 text-sm">
             {explanation.isLoading && <LoadingBlock rows={3} />}
-            {explanation.data && <p className="rounded-lg bg-muted p-3">{explanation.data.text}</p>}
-            {explanation.data?.facts.map((f, i) => <p key={i} className="text-muted-foreground">{f}</p>)}
+            {explanation.data && <p className="rounded-xl bg-brand-soft p-3.5 leading-relaxed">{explanation.data.text}</p>}
+            {explanation.data?.facts.map((f, i) => (
+              <p key={i} className="text-muted-foreground">
+                {f}
+              </p>
+            ))}
           </div>
         </SheetContent>
       </Sheet>

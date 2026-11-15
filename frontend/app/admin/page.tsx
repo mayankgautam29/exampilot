@@ -1,20 +1,18 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRight, Download, FileText, Play, Sparkles } from "lucide-react";
+import { ArrowRight, CalendarCheck, Download, FileText, History, LayoutGrid, Play, ShieldCheck, Sparkles, Users, Armchair, UserCheck, Check as CheckIcon } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
-import { HealthRadar } from "@/components/charts";
+import { Stamp } from "@/components/motion";
 import { SolverConsole } from "@/components/solver-console";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Check, EmptyState, ErrorState, LoadingBlock, PageHeader, StatTile, StatusBadge } from "@/components/ui-kit";
+import { Alert, Check, EmptyState, ErrorState, HealthGauge, LoadingBlock, PageHeader, Pill, SectionTitle, StatTile, StatusBadge } from "@/components/ui-kit";
 import { api, download } from "@/lib/api";
 import { useAiStatus, usePlans } from "@/lib/hooks";
-import type { PlanSummary } from "@/lib/types";
+import type { PlanStatus, PlanSummary } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 interface Proof {
@@ -30,7 +28,14 @@ interface Briefing {
   mode: string;
 }
 
-const PIPELINE = ["DRAFT", "PENDING_APPROVAL", "APPROVED", "PUBLISHED"] as const;
+const PIPELINE: { status: PlanStatus; label: string }[] = [
+  { status: "DRAFT", label: "Draft" },
+  { status: "PENDING_APPROVAL", label: "In review" },
+  { status: "APPROVED", label: "Approved" },
+  { status: "PUBLISHED", label: "Published" },
+];
+
+const HEALTH_LABELS: Record<string, string> = { spread: "Exam spread", utilisation: "Room utilisation", fairness: "Duty fairness", seating: "Seating separation", stability: "Stability" };
 
 export default function CommandCenter() {
   const plans = usePlans();
@@ -64,144 +69,210 @@ export default function CommandCenter() {
 
   if (plans.isLoading) return <LoadingBlock rows={6} />;
   if (plans.error) return <ErrorState error={plans.error} />;
-  const counts = Object.fromEntries(PIPELINE.map((s) => [s, plans.data?.filter((p) => p.status === s).length ?? 0]));
+  const counts = Object.fromEntries(PIPELINE.map((s) => [s.status, plans.data?.filter((p) => p.status === s.status).length ?? 0]));
   const kpis = published?.kpis;
   const pending = counts.PENDING_APPROVAL;
   const quotaLow = ai.data && ai.data.mode !== "offline" && ai.data.remaining_est < ai.data.daily_limit * 0.1;
+  const passed = proof.data?.checks.filter((c) => c.passed).length ?? 0;
+  const total = proof.data?.checks.length ?? 0;
 
   return (
     <div>
       <PageHeader
+        eyebrow="Mission control"
         title="Command Center"
-        description="The published plan at a glance, the approval pipeline, and a live solver for new plans."
+        description="The live plan, its proof of correctness, and the approval pipeline, in one view."
         actions={
-          <Button onClick={() => generate.mutate()} disabled={generate.isPending}>
+          <Button variant="brand" size="lg" onClick={() => generate.mutate()} disabled={generate.isPending}>
             <Play /> Generate plan
           </Button>
         }
       />
-      <div className="mb-4 flex flex-wrap gap-2">
-        {kpis && kpis.hard_violations > 0 && <Alert tone="bad">The published plan has {kpis.hard_violations} hard violations</Alert>}
-        {pending > 0 && (
-          <Link href="/admin/approvals">
-            <Alert tone="warn">
-              {pending} plan{pending > 1 ? "s" : ""} waiting for approval <ArrowRight className="size-3" />
-            </Alert>
-          </Link>
-        )}
-        {quotaLow && <Alert tone="warn">AI quota is almost used up; the offline parser will take over</Alert>}
-        {kpis?.relaxed_rules && <Alert tone="warn">The published plan relaxed the one-exam-per-day rule</Alert>}
-      </div>
+
+      {(pending > 0 || quotaLow || kpis?.relaxed_rules || (kpis && kpis.hard_violations > 0)) && (
+        <div className="rise-1 mb-5 flex flex-wrap gap-2">
+          {kpis && kpis.hard_violations > 0 && <Alert tone="bad">The published plan has {kpis.hard_violations} hard violations</Alert>}
+          {pending > 0 && (
+            <Link href="/admin/approvals">
+              <Alert tone="warn">
+                {pending} plan{pending > 1 ? "s" : ""} waiting for your approval <ArrowRight className="size-3.5" />
+              </Alert>
+            </Link>
+          )}
+          {quotaLow && <Alert tone="warn">AI quota is almost used up; the offline parser will take over</Alert>}
+          {kpis?.relaxed_rules && <Alert tone="warn">The published plan relaxed the one-exam-per-day rule</Alert>}
+        </div>
+      )}
 
       {!published || !kpis ? (
-        <EmptyState title="No published plan yet" hint="Generate a plan, submit it, approve it and publish it." />
+        <EmptyState
+          title="No published plan yet"
+          hint="Generate a plan, submit it for review, approve it and publish it. Students see nothing until then."
+          action={
+            <Button variant="brand" onClick={() => generate.mutate()} disabled={generate.isPending}>
+              <Play /> Generate the first plan
+            </Button>
+          }
+        />
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-            <StatTile label="Plan health" value={kpis.health?.score ?? "—"} tone={(kpis.health?.score ?? 0) >= 85 ? "good" : "warn"} hint={`v${published.version} published`} />
-            <StatTile label="Hard violations" value={kpis.hard_violations} tone={kpis.hard_violations ? "bad" : "good"} hint={`${kpis.soft_violations} soft preferences unmet`} />
-            <StatTile label="Student clashes" value={kpis.clashes} tone={kpis.clashes ? "bad" : "good"} hint={`${kpis.pct_students_one_exam_per_day}% sit one exam a day`} />
-            <StatTile label="Seating risk" value={kpis.seating_risk_index} hint={`${kpis.seating_risk_reduction_pct}% better than random`} tone="good" />
-            <StatTile label="Duty spread" value={`${kpis.duties_min}–${kpis.duties_max}`} hint={`Gini ${kpis.duty_gini}`} />
-            <StatTile label="Scale" value={kpis.students} hint={`${kpis.courses} courses, ${kpis.rooms_total} room-sessions`} />
-          </div>
-          <div className="mt-4 grid gap-4 lg:grid-cols-3">
-            <Card>
-              <CardHeader>
-                <CardTitle>Plan health</CardTitle>
-                <CardDescription>Blend of spread, utilisation, fairness, seating and stability</CardDescription>
-              </CardHeader>
-              <CardContent>{kpis.health && <HealthRadar components={kpis.health.components} />}</CardContent>
-            </Card>
-            <Card className="lg:col-span-2">
-              <CardHeader>
-                <CardTitle>Approval pipeline</CardTitle>
-                <CardDescription>Nothing reaches students until the Controller approves and publishes.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
+          <section className="surface rise-1 relative overflow-hidden">
+            <div className="absolute right-5 top-5 hidden md:block"><Stamp tone="good">published · live</Stamp></div>
+            <div className="relative grid gap-8 p-6 md:p-8 lg:grid-cols-[auto_1fr] lg:items-center xl:grid-cols-[auto_1fr_minmax(260px,320px)]">
+              <div className="flex justify-center">
+                <HealthGauge score={kpis.health?.score ?? 0} />
+              </div>
+              <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  {PIPELINE.map((status, index) => (
-                    <div key={status} className="flex items-center gap-2">
-                      <div className="rounded-lg border px-4 py-2 text-center">
-                        <div className="text-2xl font-semibold tabular-nums">{counts[status]}</div>
-                        <div className="text-xs text-muted-foreground">{status.replace("_", " ")}</div>
-                      </div>
-                      {index < PIPELINE.length - 1 && <ArrowRight className="size-4 text-muted-foreground" />}
-                    </div>
-                  ))}
+                  <Pill tone="good" dot>
+                    Live for students
+                  </Pill>
+                  <Pill tone="neutral">Version {published.version}</Pill>
+                  {kpis.hard_violations === 0 && (
+                    <Pill tone="good">
+                      <ShieldCheck className="size-3" /> Zero hard violations
+                    </Pill>
+                  )}
                 </div>
-                <div className="space-y-1.5">
-                  {plans.data?.slice(0, 8).map((plan) => (
-                    <div key={plan.id} className="flex flex-wrap items-center gap-2 rounded-lg border px-3 py-1.5 text-sm">
-                      <span className="font-medium">v{plan.version}</span>
-                      <StatusBadge status={plan.status} />
-                      <span className="min-w-0 flex-1 truncate text-muted-foreground">{plan.label}</span>
-                      <Badge variant="outline">{plan.kind}</Badge>
-                      {plan.hard_violations > 0 && <Badge className="border-0 bg-red-500/15 text-red-700">{plan.hard_violations} hard</Badge>}
-                      {plan.status === "SUPERSEDED" && plan.kind === "full" && (
-                        <Button size="xs" variant="outline" onClick={() => rollback.mutate(plan)}>
-                          Roll back to this
-                        </Button>
-                      )}
-                      {(plan.status === "DRAFT" || plan.status === "REJECTED") && (
-                        <Button size="xs" variant="outline" onClick={() => submit.mutate(plan)}>
-                          Submit
-                        </Button>
-                      )}
+                <h2 className="font-display mt-3 text-[32px] leading-[1.1]">
+                  {kpis.students} students, {kpis.courses} courses,
+                  <br />
+                  <span className="text-gradient">no clashes in the schedule.</span>
+                </h2>
+                <p className="mt-3 max-w-xl text-[13.5px] leading-relaxed text-muted-foreground">
+                  {kpis.pct_students_one_exam_per_day}% of students sit at most one exam a day, the seating plan is {kpis.seating_risk_reduction_pct}% better than random, and invigilation duties are spread between {kpis.duties_min} and {kpis.duties_max} per person.
+                </p>
+              </div>
+              <div className="space-y-3.5 lg:col-span-2 xl:col-span-1">
+                {Object.entries(kpis.health?.components ?? {}).map(([key, value]) => (
+                  <div key={key}>
+                    <div className="mb-1 flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">{HEALTH_LABELS[key] ?? key}</span>
+                      <span className="font-semibold tabular-nums">{Math.round(value)}</span>
                     </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
+                    <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                      <div className={cn("h-full rounded-full transition-all duration-700", value >= 85 ? "bg-good" : value >= 70 ? "bg-warn" : "bg-bad")} style={{ width: `${Math.max(4, value)}%` }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+
+          <div className="rise-2 mt-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+            <StatTile icon={ShieldCheck} label="Violations" value={kpis.hard_violations} tone={kpis.hard_violations ? "bad" : "good"} hint={`${kpis.soft_violations} soft preferences unmet`} />
+            <StatTile icon={CalendarCheck} label="Clashes" value={kpis.clashes} tone={kpis.clashes ? "bad" : "good"} hint={`Mean gap ${kpis.mean_gap_days.toFixed(1)} days between exams`} />
+            <StatTile icon={Armchair} label="Seating risk" value={kpis.seating_risk_index} tone="good" hint={`${kpis.seating_risk_reduction_pct}% better than random`} />
+            <StatTile icon={UserCheck} label="Duty spread" value={`${kpis.duties_min}–${kpis.duties_max}`} hint={`Fairness Gini ${kpis.duty_gini}`} />
+            <StatTile icon={LayoutGrid} label="Utilisation" value={`${Math.round(kpis.seat_utilisation_pct)}%`} hint={`${kpis.rooms_total} room-sessions in use`} />
+            <StatTile icon={Users} label="Cohort" value={kpis.students} hint={`${kpis.courses} courses scheduled`} />
           </div>
-          <div className="mt-4 grid gap-4 lg:grid-cols-2">
-            <Card>
-              <CardHeader>
-                <CardTitle>Proof panel</CardTitle>
-                <CardDescription>The independent validator recomputes every rule from the plan data. No solver code is involved.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-1.5">
+
+          <div className="rise-3 mt-6 grid grid-cols-[minmax(0,1fr)] gap-4 xl:grid-cols-5">
+            <div className="surface p-5 xl:col-span-3">
+              <SectionTitle title="Approval pipeline" hint="Nothing reaches students until the Controller approves and publishes." />
+              <div className="relative mb-5 grid grid-cols-4 gap-2">
+                <div className="absolute inset-x-[12.5%] top-4 h-px bg-border" />
+                {PIPELINE.map((step) => {
+                  const count = counts[step.status];
+                  const live = count > 0;
+                  return (
+                    <div key={step.status} className="relative flex flex-col items-center text-center">
+                      <div className={cn("z-10 flex size-8 items-center justify-center rounded-full border-2 text-xs font-bold tabular-nums transition", live ? "border-brand bg-brand text-brand-foreground" : "border-border bg-card text-muted-foreground")}>{count}</div>
+                      <div className={cn("mt-2 text-xs", live ? "font-semibold" : "text-muted-foreground")}>{step.label}</div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="divide-y rounded-xl border">
+                {plans.data?.slice(0, 7).map((plan) => (
+                  <div key={plan.id} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3.5 py-2.5 text-[13px]">
+                    <span className="w-8 font-mono text-xs font-semibold text-muted-foreground">v{plan.version}</span>
+                    <StatusBadge status={plan.status} />
+                    <span className="min-w-0 flex-1 truncate">{plan.label}</span>
+                    <Pill tone="neutral">{plan.kind}</Pill>
+                    {plan.hard_violations > 0 && <Pill tone="bad">{plan.hard_violations} hard</Pill>}
+                    {plan.status === "SUPERSEDED" && plan.kind === "full" && (
+                      <Button size="xs" variant="outline" onClick={() => rollback.mutate(plan)}>
+                        <History /> Roll back
+                      </Button>
+                    )}
+                    {(plan.status === "DRAFT" || plan.status === "REJECTED") && (
+                      <Button size="xs" variant="outline" onClick={() => submit.mutate(plan)}>
+                        Submit for review
+                      </Button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="surface flex flex-col p-5 xl:col-span-2">
+              <SectionTitle
+                title="Proof panel"
+                hint="Every rule recomputed from raw plan data. No solver code involved."
+                action={
+                  total > 0 && (
+                    <Pill tone={passed === total ? "good" : "bad"}>
+                      <CheckIcon className="size-3" /> {passed}/{total} passed
+                    </Pill>
+                  )
+                }
+              />
+              {total > 0 && (
+                <div className="mb-3 h-1.5 overflow-hidden rounded-full bg-muted">
+                  <div className={cn("h-full rounded-full transition-all duration-700", passed === total ? "bg-good" : "bg-bad")} style={{ width: `${(100 * passed) / total}%` }} />
+                </div>
+              )}
+              <div className="max-h-[300px] flex-1 space-y-2.5 overflow-y-auto pr-1">
                 {proof.isLoading && <LoadingBlock rows={4} />}
                 {proof.data?.checks.map((check) => (
-                  <Check key={check.code} ok={check.passed} label={<><span className="font-mono text-xs text-muted-foreground">{check.code}</span> {check.description}{!check.passed && ` — ${check.violations} violations`}</>} />
+                  <Check key={check.code} ok={check.passed} label={<><span className="mr-1 font-mono text-[11px] text-muted-foreground">{check.code}</span> {check.description}{!check.passed && ` · ${check.violations} violations`}</>} />
                 ))}
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle>Executive briefing</CardTitle>
-                <CardDescription>Prose written from the KPI numbers, then checked number by number.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {briefing.data ? (
-                  <>
-                    <p className="text-sm leading-relaxed">{briefing.data.text}</p>
-                    <Badge className={cn("border-0", briefing.data.verified ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300" : "bg-red-500/15 text-red-700")}>
-                      {briefing.data.verified ? "✓ numbers verified against solver output" : "numbers not verified"}
-                    </Badge>
-                    <Badge variant="outline" className="ml-2">{briefing.data.mode}</Badge>
-                  </>
-                ) : (
+              </div>
+            </div>
+          </div>
+
+          <div className="rise-4 mt-4 grid grid-cols-[minmax(0,1fr)] gap-4 xl:grid-cols-5">
+            <div className="surface p-5 xl:col-span-3">
+              <SectionTitle title="Executive briefing" hint="Prose written from the KPI numbers, then verified number by number." />
+              {briefing.data ? (
+                <div className="space-y-3">
+                  <p className="text-[14px] leading-relaxed">{briefing.data.text}</p>
+                  <div className="flex gap-2">
+                    <Pill tone={briefing.data.verified ? "good" : "bad"} dot>
+                      {briefing.data.verified ? "Numbers verified against solver output" : "Numbers not verified"}
+                    </Pill>
+                    <Pill tone="neutral">{briefing.data.mode}</Pill>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3 rounded-xl border border-dashed p-4">
+                  <Sparkles className="size-5 text-brand" />
+                  <p className="flex-1 text-[13px] text-muted-foreground">Generate a short, fact-checked summary for the Controller.</p>
                   <Button variant="outline" onClick={() => briefing.mutate()} disabled={briefing.isPending}>
-                    <Sparkles /> Write briefing
-                  </Button>
-                )}
-                <div className="flex flex-wrap gap-2 border-t pt-3">
-                  <Button size="sm" variant="outline" onClick={() => download("/export/timetable.pdf", "timetable.pdf")}>
-                    <FileText /> Timetable PDF
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => download("/export/roster.pdf", "roster.pdf")}>
-                    <FileText /> Roster PDF
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => download("/export/plan.xlsx", "plan.xlsx")}>
-                    <Download /> Excel
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => download("/export/halltickets.zip", "halltickets.zip")}>
-                    <Download /> Hall tickets
+                    {briefing.isPending ? "Writing…" : "Write briefing"}
                   </Button>
                 </div>
-              </CardContent>
-            </Card>
+              )}
+            </div>
+            <div className="surface p-5 xl:col-span-2">
+              <SectionTitle title="Exports" hint="Download the published plan." />
+              <div className="grid grid-cols-2 gap-2">
+                <Button variant="outline" className="justify-start" onClick={() => download("/export/timetable.pdf", "timetable.pdf")}>
+                  <FileText /> Timetable PDF
+                </Button>
+                <Button variant="outline" className="justify-start" onClick={() => download("/export/roster.pdf", "roster.pdf")}>
+                  <FileText /> Roster PDF
+                </Button>
+                <Button variant="outline" className="justify-start" onClick={() => download("/export/plan.xlsx", "plan.xlsx")}>
+                  <Download /> Excel
+                </Button>
+                <Button variant="outline" className="justify-start" onClick={() => download("/export/halltickets.zip", "halltickets.zip")}>
+                  <Download /> Hall tickets
+                </Button>
+              </div>
+            </div>
           </div>
         </>
       )}
@@ -215,15 +286,6 @@ export default function CommandCenter() {
           {jobId && <SolverConsole jobId={jobId} onDone={() => client.invalidateQueries({ queryKey: ["plans"] })} />}
         </DialogContent>
       </Dialog>
-    </div>
-  );
-}
-
-function Alert({ tone, children }: { tone: "bad" | "warn"; children: React.ReactNode }) {
-  return (
-    <div className={cn("flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm", tone === "bad" ? "border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300" : "border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-200")}>
-      <AlertTriangle className="size-4" />
-      {children}
     </div>
   );
 }

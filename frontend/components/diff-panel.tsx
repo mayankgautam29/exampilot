@@ -33,12 +33,12 @@ export function MiniCalendar({ diff, slots }: { diff: Diff; slots: SlotInfo[] })
               return (
                 <div key={id} className="min-h-9 space-y-0.5 bg-background p-1">
                   {leaving.map((m) => (
-                    <div key={m.course_id} className="rounded bg-red-500/15 px-1 text-red-700 line-through dark:text-red-300">
+                    <div key={m.course_id} className="rounded bg-bad/15 px-1 text-bad line-through">
                       {m.course_id}
                     </div>
                   ))}
                   {arriving.map((m) => (
-                    <div key={m.course_id} className="rounded bg-emerald-500/15 px-1 text-emerald-700 dark:text-emerald-300">
+                    <div key={m.course_id} className="rounded bg-good/15 px-1 text-good-text">
                       {m.course_id}
                     </div>
                   ))}
@@ -102,8 +102,8 @@ export function DiffPanel({ diff, slots }: { diff: Diff; slots?: SlotInfo[] }) {
 
 function Fact({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-lg border p-2">
-      <div className="text-lg font-semibold tabular-nums">{value}</div>
+    <div className="rounded-xl border bg-muted/40 p-3">
+      <div className="text-2xl font-semibold tracking-tight tabular-nums">{value}</div>
       <div className="text-xs text-muted-foreground">{label}</div>
     </div>
   );

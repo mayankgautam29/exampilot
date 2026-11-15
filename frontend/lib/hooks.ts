@@ -4,8 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "./api";
 import type { AiStatus, Catalogue, PlanDetail, PlanSummary } from "./types";
 
-export function usePlans(status?: string) {
-  return useQuery({ queryKey: ["plans", status ?? "all"], queryFn: () => api<PlanSummary[]>("/plans", { params: { status } }), refetchInterval: 15000 });
+export function usePlans(status?: string, enabled = true) {
+  return useQuery({ queryKey: ["plans", status ?? "all"], queryFn: () => api<PlanSummary[]>("/plans", { params: { status } }), refetchInterval: 15000, enabled });
 }
 
 export function usePublished() {

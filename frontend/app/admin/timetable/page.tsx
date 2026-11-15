@@ -2,15 +2,15 @@
 
 import { DndContext, DragOverlay, PointerSensor, useDraggable, useDroppable, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from "@dnd-kit/core";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { GripVertical, MousePointerClick, Pin, Sun, Sunset } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { DiffPanel } from "@/components/diff-panel";
 import { SolverConsole } from "@/components/solver-console";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { ErrorState, LoadingBlock, PageHeader } from "@/components/ui-kit";
+import { ErrorState, LoadingBlock, NativeSelect, PageHeader, Pill } from "@/components/ui-kit";
 import { api } from "@/lib/api";
 import { DEPT_COLORS, shortDate } from "@/lib/format";
 import { useCatalogue, usePlanDetail, usePlans } from "@/lib/hooks";
@@ -32,7 +32,7 @@ interface Explanation {
   data: { alternatives: MoveOption[] };
 }
 
-const TINT = { green: "bg-emerald-500/15 ring-emerald-500/60", amber: "bg-amber-500/15 ring-amber-500/60", red: "bg-red-500/15 ring-red-500/60" };
+const TINT = { green: "bg-good/12 ring-2 ring-good/60", amber: "bg-warn/12 ring-2 ring-warn/60", red: "bg-bad/10 ring-2 ring-bad/50" };
 
 function CourseCard({ exam, flag, onOpen }: { exam: ExamRow; flag?: "consecutive" | "relaxed"; onOpen: (course: string) => void }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: exam.course_id });
@@ -42,23 +42,35 @@ function CourseCard({ exam, flag, onOpen }: { exam: ExamRow; flag?: "consecutive
       {...listeners}
       {...attributes}
       onClick={() => onOpen(exam.course_id)}
-      className={cn("cursor-grab touch-none rounded-md border bg-card px-2 py-1 text-xs shadow-sm", isDragging && "opacity-30", flag === "consecutive" && "ring-1 ring-amber-500", flag === "relaxed" && "ring-2 ring-red-500")}
-      style={{ borderLeft: `4px solid ${DEPT_COLORS[exam.dept] ?? "#64748b"}` }}
+      className={cn("group relative cursor-grab touch-none overflow-hidden rounded-lg border bg-card py-1.5 pl-3.5 pr-2 text-xs shadow-xs transition hover:-translate-y-px hover:shadow-card active:cursor-grabbing", isDragging && "opacity-30", flag === "consecutive" && "ring-1 ring-warn", flag === "relaxed" && "ring-2 ring-bad")}
       title={`${exam.name} · ${exam.size} students`}
     >
-      <div className="flex items-center justify-between gap-1">
-        <span className="font-medium">{exam.course_id}</span>
-        <span className="text-muted-foreground">{exam.size}</span>
+      <span className="absolute inset-y-0 left-0 w-1.5" style={{ background: DEPT_COLORS[exam.dept] ?? "#5b6b85" }} />
+      <div className="flex items-center justify-between gap-1.5">
+        <span className="flex items-center gap-1 font-semibold">
+          {exam.course_id}
+          {exam.pinned && <Pin className="size-3 text-brand" />}
+        </span>
+        <span className="flex items-center gap-1 tabular-nums text-muted-foreground">
+          {exam.size}
+          <GripVertical className="size-3 opacity-0 transition group-hover:opacity-60" />
+        </span>
       </div>
-      <div className="truncate text-[10px] text-muted-foreground">{exam.name}{exam.pinned ? " 📌" : ""}</div>
+      <div className="truncate text-[10.5px] text-muted-foreground">{exam.name}</div>
     </div>
   );
 }
 
-function SlotCell({ id, option, children }: { id: string; option?: MoveOption; children: React.ReactNode }) {
+function SlotCell({ id, option, count, students, children }: { id: string; option?: MoveOption; count: number; students: number; children: React.ReactNode }) {
   const { setNodeRef, isOver } = useDroppable({ id });
   return (
-    <div ref={setNodeRef} title={option?.reason} className={cn("min-h-24 space-y-1 rounded-lg border p-1.5 transition", option && cn("ring-2", TINT[option.status]), isOver && "ring-4")}>
+    <div ref={setNodeRef} title={option?.reason} className={cn("min-h-28 space-y-1.5 rounded-xl border bg-muted/40 p-2 transition", option && TINT[option.status], isOver && "scale-[1.01] shadow-lift")}>
+      {count > 0 && (
+        <div className="flex items-center justify-between px-0.5 text-[10.5px] font-medium text-muted-foreground tabular-nums">
+          <span>{count} exam{count > 1 ? "s" : ""}</span>
+          <span>{students} students</span>
+        </div>
+      )}
       {children}
     </div>
   );
@@ -163,56 +175,77 @@ export default function TimetablePage() {
   return (
     <div>
       <PageHeader
+        eyebrow="Plan"
         title="Timetable"
-        description="Drag a course onto another session. Every session tints green (free), amber (others must move) or red (impossible) while you drag; dropping creates a pin proposal."
+        description="Drag a course onto another session. While you drag, each session tints green (free), amber (others must move) or red (impossible). Dropping creates a pin proposal in a sandbox."
         actions={
           <>
-            <select className="h-8 rounded-lg border bg-background px-2 text-sm" value={planId ?? ""} onChange={(e) => setSelected(Number(e.target.value))}>
+            <NativeSelect aria-label="Plan version" value={planId ?? ""} onChange={(e) => setSelected(Number(e.target.value))}>
               {plans.data?.filter((p) => p.status !== "SUPERSEDED").map((p) => (
-                <option key={p.id} value={p.id}>v{p.version} · {p.status} · {p.label.slice(0, 30)}</option>
+                <option key={p.id} value={p.id}>v{p.version} · {p.status.replace("_", " ").toLowerCase()} · {p.label.slice(0, 30)}</option>
               ))}
-            </select>
-            <Button size="sm" variant={overlays ? "secondary" : "outline"} onClick={() => setOverlays((v) => !v)}>
+            </NativeSelect>
+            <Button variant={overlays ? "default" : "outline"} onClick={() => setOverlays((v) => !v)}>
               Conflict overlays
             </Button>
           </>
         }
       />
-      <div className="mb-3 flex min-h-7 flex-wrap items-center gap-2 text-sm">
+      <div className="surface rise-1 mb-4 flex min-h-12 flex-wrap items-center gap-x-5 gap-y-2 px-4 py-2.5 text-[13px]">
         {hover ? (
           <>
-            <Badge className={cn("border-0", hover.status === "green" ? "bg-emerald-500/20" : hover.status === "amber" ? "bg-amber-500/20" : "bg-red-500/20")}>{hover.label}</Badge>
-            <span>{hover.reason}</span>
-            <span className="text-muted-foreground">· {hover.students_affected} students affected · cost {hover.est_cost_delta >= 0 ? "+" : ""}{hover.est_cost_delta}</span>
+            <Pill tone={hover.status === "green" ? "good" : hover.status === "amber" ? "warn" : "bad"} dot>{hover.label}</Pill>
+            <span className="font-medium">{hover.reason}</span>
+            <span className="text-muted-foreground tabular-nums">{hover.students_affected} students affected · cost {hover.est_cost_delta >= 0 ? "+" : ""}{hover.est_cost_delta}</span>
           </>
+        ) : dragging ? (
+          <span className="flex items-center gap-2 text-muted-foreground"><MousePointerClick className="size-4" /> Checking every session for {dragging}…</span>
         ) : (
-          <span className="text-muted-foreground">{Object.entries(DEPT_COLORS).map(([dept, color]) => <span key={dept} className="mr-3"><span className="mr-1 inline-block size-2 rounded-sm" style={{ background: color }} />{dept}</span>)}</span>
+          <>
+            <span className="eyebrow">Departments</span>
+            {Object.entries(DEPT_COLORS).map(([dept, color]) => (
+              <span key={dept} className="flex items-center gap-1.5 text-xs font-medium">
+                <span className="size-2.5 rounded-sm" style={{ background: color }} />
+                {dept}
+              </span>
+            ))}
+            <span className="ml-auto hidden items-center gap-1.5 text-xs text-muted-foreground md:flex">
+              <MousePointerClick className="size-3.5" /> Click a course to see why it sits here
+            </span>
+          </>
         )}
       </div>
       <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragOver={(e) => setHover(e.over ? (options[String(e.over.id)] ?? null) : null)}>
-        <div className="overflow-x-auto">
-          <div className="grid min-w-[640px] gap-2" style={{ gridTemplateColumns: "90px 1fr 1fr" }}>
+        <div className="overflow-x-auto pb-2">
+          <div className="grid min-w-[700px] gap-2.5" style={{ gridTemplateColumns: "84px 1fr 1fr" }}>
             <div />
-            <div className="px-1 text-xs font-medium text-muted-foreground">Morning S1 · 09:30</div>
-            <div className="px-1 text-xs font-medium text-muted-foreground">Afternoon S2 · 14:00</div>
-            {days.map((day) => (
-              <div key={day} className="contents">
-                <div className="pt-2 text-xs font-medium">{shortDate(day)}</div>
-                {["S1", "S2"].map((session) => {
-                  const id = `${day}-${session}`;
-                  return (
-                    <SlotCell key={id} id={id} option={options[id]}>
-                      {exams.filter((e) => e.slot_id === id).map((exam) => (
-                        <CourseCard key={exam.course_id} exam={exam} flag={flags.get(exam.course_id)} onOpen={setWhy} />
-                      ))}
-                    </SlotCell>
-                  );
-                })}
-              </div>
-            ))}
+            <div className="flex items-center gap-2 px-1 text-xs font-semibold"><Sun className="size-4 text-warn" /> Morning <span className="font-normal text-muted-foreground">S1 · 09:30</span></div>
+            <div className="flex items-center gap-2 px-1 text-xs font-semibold"><Sunset className="size-4 text-brand" /> Afternoon <span className="font-normal text-muted-foreground">S2 · 14:00</span></div>
+            {days.map((day) => {
+              const [weekday, ...rest] = shortDate(day).replace(",", "").split(" ");
+              return (
+                <div key={day} className="contents">
+                  <div className="pt-2.5 pl-1">
+                    <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{weekday}</div>
+                    <div className="text-sm font-semibold">{rest.join(" ")}</div>
+                  </div>
+                  {["S1", "S2"].map((session) => {
+                    const id = `${day}-${session}`;
+                    const inSlot = exams.filter((e) => e.slot_id === id);
+                    return (
+                      <SlotCell key={id} id={id} option={options[id]} count={inSlot.length} students={inSlot.reduce((total, e) => total + e.size, 0)}>
+                        {inSlot.map((exam) => (
+                          <CourseCard key={exam.course_id} exam={exam} flag={flags.get(exam.course_id)} onOpen={setWhy} />
+                        ))}
+                      </SlotCell>
+                    );
+                  })}
+                </div>
+              );
+            })}
           </div>
         </div>
-        <DragOverlay>{dragged && <div className="rounded-md border bg-card px-2 py-1 text-xs shadow-lg">{dragged.course_id} · {dragged.name}</div>}</DragOverlay>
+        <DragOverlay>{dragged && <div className="rounded-lg border bg-card px-3 py-2 text-xs font-semibold shadow-lift ring-2 ring-brand/40">{dragged.course_id} · {dragged.name}</div>}</DragOverlay>
       </DndContext>
 
       <Dialog open={!!pending && !job && !result} onOpenChange={(open) => !open && setPending(null)}>
@@ -223,7 +256,7 @@ export default function TimetablePage() {
           </DialogHeader>
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setPending(null)}>Cancel</Button>
-            <Button onClick={confirmPin}>Create proposal</Button>
+            <Button variant="brand" onClick={confirmPin}>Create proposal</Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -245,8 +278,8 @@ export default function TimetablePage() {
           {result && <DiffPanel diff={result.diff} slots={catalogue.data?.slots} />}
           <div className="flex flex-wrap justify-end gap-2">
             <Button variant="outline" onClick={() => resolve("discard")}>Discard</Button>
-            <Button variant="secondary" onClick={() => resolve("apply")}>Apply to draft</Button>
-            <Button onClick={() => resolve("submit")}>Submit for approval</Button>
+            <Button variant="outline" onClick={() => resolve("apply")}>Apply to draft</Button>
+            <Button variant="brand" onClick={() => resolve("submit")}>Submit for approval</Button>
           </div>
         </DialogContent>
       </Dialog>

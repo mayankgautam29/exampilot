@@ -1,12 +1,11 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { Mail, MessageCircle } from "lucide-react";
+import { ChevronRight, Mail, MessageCircle, Search } from "lucide-react";
 import { useState } from "react";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { EmptyState, LoadingBlock, PageHeader } from "@/components/ui-kit";
+import { EmptyState, LoadingBlock, NativeSelect, PageHeader, Pill } from "@/components/ui-kit";
 import { api } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 interface Message {
   id: number;
@@ -25,25 +24,37 @@ export default function OutboxPage() {
   const { data, isLoading } = useQuery({ queryKey: ["outbox", channel, to], queryFn: () => api<{ total: number; items: Message[] }>("/outbox", { params: { channel, to, limit: 100 } }), refetchInterval: 15000 });
   return (
     <div>
-      <PageHeader title="Outbox" description="Mock email and WhatsApp messages generated when a plan or hotfix is published. Nothing is ever sent to a real person." actions={data && <Badge variant="outline">{data.total} messages</Badge>} />
-      <div className="mb-3 flex flex-wrap gap-2">
-        <select className="h-8 rounded-lg border bg-background px-2 text-sm" value={channel} onChange={(e) => setChannel(e.target.value)}>
-          <option value="">All channels</option><option value="email">Email</option><option value="whatsapp">WhatsApp</option>
-        </select>
-        <Input placeholder="Recipient" value={to} onChange={(e) => setTo(e.target.value)} className="max-w-56" />
+      <PageHeader eyebrow="Insights" title="Outbox" description="Mock email and WhatsApp messages generated when a plan or hotfix is published. Nothing is ever sent to a real person." actions={data && <Pill tone="info">{data.total} messages</Pill>} />
+      <div className="surface rise-1 mb-4 flex flex-wrap items-center gap-2.5 p-3.5">
+        <NativeSelect aria-label="Channel" value={channel} onChange={(e) => setChannel(e.target.value)}>
+          <option value="">All channels</option>
+          <option value="email">Email</option>
+          <option value="whatsapp">WhatsApp</option>
+        </NativeSelect>
+        <div className="relative min-w-52 flex-1 sm:max-w-xs">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <input placeholder="Recipient" aria-label="Recipient" value={to} onChange={(e) => setTo(e.target.value)} className="h-9 w-full rounded-lg border border-input bg-card pl-9 pr-3 text-sm shadow-xs outline-none transition focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30" />
+        </div>
       </div>
-      {isLoading ? <LoadingBlock rows={5} /> : !data?.items.length ? <EmptyState title="Nothing has been sent yet" hint="Publish a plan to fan out notifications." /> : (
-        <div className="space-y-1.5">
+      {isLoading ? (
+        <LoadingBlock rows={5} />
+      ) : !data?.items.length ? (
+        <EmptyState title="Nothing has been sent yet" hint="Publish a plan to fan out notifications to students and faculty." />
+      ) : (
+        <div className="surface rise-2 divide-y overflow-hidden">
           {data.items.map((m) => (
-            <button key={m.id} onClick={() => setOpen(open === m.id ? null : m.id)} className="w-full rounded-lg border p-3 text-left text-sm hover:bg-muted/50">
-              <div className="flex items-center gap-2">
-                {m.channel === "email" ? <Mail className="size-4" /> : <MessageCircle className="size-4 text-emerald-500" />}
-                <span className="font-medium">{m.subject}</span>
-                <span className="text-xs text-muted-foreground">to {m.to}</span>
-                <Badge variant="outline" className="ml-auto">plan #{m.plan_id}</Badge>
-              </div>
-              {open === m.id && <pre className="mt-2 whitespace-pre-wrap rounded bg-muted p-2 text-xs">{m.body}</pre>}
-            </button>
+            <div key={m.id}>
+              <button onClick={() => setOpen(open === m.id ? null : m.id)} aria-expanded={open === m.id} className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition hover:bg-muted/50">
+                <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-xl", m.channel === "email" ? "bg-info/12 text-info" : "bg-good/12 text-good-text")}>{m.channel === "email" ? <Mail className="size-4" /> : <MessageCircle className="size-4" />}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[13.5px] font-semibold">{m.subject}</div>
+                  <div className="text-xs text-muted-foreground">to {m.to}</div>
+                </div>
+                <Pill tone="neutral">plan #{m.plan_id}</Pill>
+                <ChevronRight className={cn("size-4 shrink-0 text-muted-foreground transition-transform", open === m.id && "rotate-90")} />
+              </button>
+              {open === m.id && <pre className="whitespace-pre-wrap border-t bg-muted/30 px-5 py-4 font-sans text-[13px] leading-relaxed">{m.body}</pre>}
+            </div>
           ))}
         </div>
       )}
